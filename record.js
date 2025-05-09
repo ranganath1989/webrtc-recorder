@@ -1,29 +1,38 @@
 const puppeteer = require('puppeteer');
+const { spawn } = require('child_process');
+const path = require('path');
 
-(async () => {
+async function startRecording(roomUrl, roomId) {
+    const browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
 
-  const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/google-chrome-stable',
-  headless: 'new', // resolves Puppeteer warning
-  args: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--ignore-certificate-errors' // fixes self-signed SSL error
-  ]
-});
+    const page = await browser.newPage();
+    await page.goto(roomUrl);
 
+    const outputPath = path.join(__dirname, `recordings/${roomId}_${Date.now()}.mp4`);
 
+    const ffmpeg = spawn('ffmpeg', [
+        '-y',
+        '-f', 'x11grab',
+        '-video_size', '1280x720',
+        '-i', ':99.0',  // this depends on your setup (e.g., Xvfb)
+        '-r', '30',
+        '-codec:v', 'libx264',
+        outputPath
+    ]);
 
-  const page = await browser.newPage();
+    ffmpeg.stderr.on('data', (data) => {
+        console.error(`FFmpeg error: ${data}`);
+    });
 
-  // 👉 Replace this URL with your WebRTC room or call page
-  await page.goto('https://18.212.206.230:8080/join?room=Room1', {
-    waitUntil: 'networkidle2'
-  });
+    return { browser, ffmpeg };
+}
 
-  console.log('Call page loaded. Waiting for 30 seconds to capture...');
-  await new Promise(resolve => setTimeout(resolve, 30000));
+async function stopRecording({ browser, ffmpeg }) {
+    if (ffmpeg) ffmpeg.kill('SIGINT');
+    if (browser) await browser.close();
+}
 
-  await browser.close();
-})();
-
+module.exports = { startRecording, stopRecording };
